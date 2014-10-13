@@ -191,9 +191,9 @@ void *half_alloc(uint16_t requestedSize) {
         return block;
     } else {
         // roundup requested block's size to multiple of 32
-        blockSize = (uint16_t) (((ceil) (requestedSize / 32)) * 32);
+        blockSize = (uint16_t) ((ceil(requestedSize / 32.0)) * 32);
         // round down excess size to multiple of 32
-        excessSize = (uint16_t) (((floor) (excessSize / 32)) * 32);
+        excessSize = (uint16_t) ((floor(excessSize / 32.0)) * 32);
         excessBlock = block + blockSize;
         // cut up and put back into bucket
         // TODO: Make the excess the first part of the block and return what is left for the requested allocation to save bucket manipulation since we don't remove (and rearrange), just edit
@@ -213,7 +213,7 @@ void *half_alloc(uint16_t requestedSize) {
         *(block + 2) = (uint8_t) ((uint8_t) (maskPtrForStorage(block + blockSize) << 6)) + (uint8_t) (maskSizeForStorage(blockSize) >> 6);
         *(block + 3) = (uint8_t) ((maskSizeForStorage(blockSize) & 63) << 2) + (uint8_t) 2;
     }
-    printf("UNALLOCATED SIZE : %u\n", unAllocatedSize);
+//    printf("UNALLOCATED SIZE : %u\n", unAllocatedSize);
 	return block;
 }
 
@@ -279,5 +279,5 @@ void half_free( void * ptrToDelete ) {
         bucketIndex = getBucketIndex(blockSize);
         addToBucket(currentPtr, bucketIndex);
     }
-    printf("UNALLOCATED SIZE : %u\n", unAllocatedSize);
+//    printf("UNALLOCATED SIZE : %u\n", unAllocatedSize);
 }
