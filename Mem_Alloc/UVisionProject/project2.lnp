@@ -1,0 +1,5 @@
+--cpu Cortex-M3 "startup_lpc17xx.o" "half_fit.o" "main.o" "system_lpc17xx.o" 
+--strict --scatter "project2.sct" 
+--summary_stderr --info summarysizes --map --xref --callgraph --symbols 
+--info sizes --info totals --info unused --info veneers 
+ --list ".\project2.map" -o project2.axf
