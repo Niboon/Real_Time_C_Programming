@@ -192,6 +192,7 @@ bool test_alc_free_max( void ) {
 
 
 bool test_static_alc_free( void ) {
+    int i;
 	bool rslt = true;
 	uint32_t max_sz;
 	void *ptr_1, *ptr_2, *ptr_3, *ptr_4, *ptr_5, *ptr_6;
@@ -235,6 +236,11 @@ bool test_static_alc_free( void ) {
 
 	half_free(ptr_5);
 
+
+    for (i=0; i<11; i++) {
+        printf("Bucket %d : %p\n",i,(void *)buckets[i]);
+    }
+
 	// Check wether all allocated memory blocks are freed.
 	ptr_1 = half_alloc(max_sz);
 
@@ -259,6 +265,7 @@ void alloc_blk_in_arr( block_t* blks, size_t *blks_sz, size_t len ) {
 }
 
 bool test_static_alc_free_violation( void ) {
+    int i;
 	bool rslt = true;
 	size_t max_sz, blks_sz;
 	block_t blks[5];
@@ -285,6 +292,11 @@ bool test_static_alc_free_violation( void ) {
 		return false;
 	}
 
+
+    for (i=0; i<11; i++) {
+        printf("Bucket %d : %p\n",i,(void *)buckets[i]);
+    }
+
 	--blks_sz;
 	half_free(blks[blks_sz].ptr);
 
@@ -308,6 +320,12 @@ bool test_static_alc_free_violation( void ) {
 
 	--blks_sz;
 	half_free(blks[blks_sz].ptr);
+
+    printf("after FREE\n");
+
+    for (i=0; i<11; i++) {
+        printf("Bucket %d : %p\n",i,(void *)buckets[i]);
+    }
 
 	// Check wether all allocated memory blocks are freed.
 	ptr_1 = half_alloc(max_sz);
@@ -466,9 +484,9 @@ int main( void ) {
 
 		printf( "test_alc_free_max=%i \n",              test_alc_free_max() );
 		printf( "test_static_alc_free=%i \n",           test_static_alc_free() );
-		printf( "test_static_alc_free_violation=%i \n", test_static_alc_free_violation() );
-		printf( "test_rndm_alc_free=%i \n",             test_rndm_alc_free() );
-		printf( "test_max_alc_1_byte=%i \n",            test_max_alc_1_byte() );
+//		printf( "test_static_alc_free_violation=%i \n", test_static_alc_free_violation() );
+//		printf( "test_rndm_alc_free=%i \n",             test_rndm_alc_free() );
+//		printf( "test_max_alc_1_byte=%i \n",            test_max_alc_1_byte() );
 //	} TimerStop();
 
 //	printf( "The elappsed time is %d ms\n", current_elapsed_time() );

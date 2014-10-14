@@ -21,19 +21,20 @@
 //    printf("3rd Byte:  %s\n", charToBinary(*(baseAddress +2)));
 //    printf("4th Byte:  %s\n", charToBinary(*(baseAddress +3)));
 //    printf("5th Byte:  %s\n", charToBinary(*(baseAddress +4)));
-////    allocated1 = half_alloc(32768/2);
-//    allocated2 = half_alloc(32768/4);
-//    allocated3 = half_alloc(32768/8);
-//    allocated4 = half_alloc(32768/16);
-//    allocated5 = half_alloc(32768/32);
+//    allocated1 = half_alloc(32768/2);
+////    allocated2 = half_alloc(32768/4);
+////    allocated3 = half_alloc(32768/8);
+////    allocated4 = half_alloc(32768/16);
+////    allocated5 = half_alloc(32768/32);
 //    for (i=0; i<11; i++) {
 //        printf("Bucket %d : %p\n",i,(void *)buckets[i]);
 //    }
-////    half_free(allocated1);
-//    half_free(allocated2);
-//    half_free(allocated3);
-//    half_free(allocated4);
-//    half_free(allocated5);
+//    half_free(allocated1);
+//    printf("after FREE\n");
+////    half_free(allocated2);
+////    half_free(allocated3);
+////    half_free(allocated4);
+////    half_free(allocated5);
 //    for (i=0; i<11; i++) {
 //        printf("Bucket %d : %p\n",i,(void *)buckets[i]);
 //    }
