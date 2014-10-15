@@ -5,104 +5,110 @@
 #include "half_fit.h"
 
 
-inline int getBucketIndex(uint16_t size) {
+inline int getBucketIndex(uint32_t size) {
     return (int)ceil(((log10(size))/(log10(2)))-5);
 }
 
-inline uint16_t unMaskPreviousMemPtr(uint8_t *currentPtr) {
-    return (((uint16_t) *currentPtr) << 2) + (((uint16_t) *(currentPtr + 1)) >> 6);
+inline uint32_t unMaskPreviousMemPtr(uint32_t *currentPtr) {
+    return (*currentPtr & PREV_PTR_HEADER_BITS) >> 22;
 }
 
-inline uint16_t unMaskNextMemPtr(uint8_t *currentPtr) {
-    return (((uint16_t) (*(currentPtr + 1) & 63)) << 4) + (((uint16_t) *(currentPtr + 2)) >> 4);
+inline uint32_t unMaskNextMemPtr(uint32_t *currentPtr) {
+    return (*currentPtr & NEXT_PTR_HEADER_BITS) >> 12;
 }
 
-inline uint16_t replaceZeroSizeWithMaxSize(uint16_t blockSize) {
+inline uint32_t replaceZeroSizeWithMaxSize(uint32_t blockSize) {
     if (blockSize == 0) {
-        blockSize = 32768;
+        blockSize = (uint32_t) 32768;
     }
     return blockSize;
 }
 
-inline uint16_t unMaskSize(uint8_t *currentPtr) {
-    uint16_t blockSize = ((((uint16_t) (*(currentPtr + 2) & 15)) << 6) + (((uint16_t) *(currentPtr + 3)) >> 2)) << 5;
+inline uint32_t unMaskSize(uint32_t *currentPtr) {
+    uint32_t blockSize = (*currentPtr & SIZE_HEADER_BITS) << 3;
     return replaceZeroSizeWithMaxSize(blockSize);
 }
 
 
-inline uint8_t *getAbsoluteAddress(uint16_t storedPtr) {
-    return (uint8_t *)((storedPtr << 5) + constantAddress);
+inline uint32_t *getAbsoluteAddressPtr(uint32_t storedPtr) {
+    return (uint32_t *)((storedPtr << 5) + constantAddress);
 }
 
-inline uint16_t maskPtrForStorage(uint8_t *ptrToMask) {
-    return (uint16_t) ((((uint32_t) ptrToMask) & changingAddressBits) >> 5);
+inline uint32_t maskPtrForStorage(uint32_t *ptrToMask) {
+    return (((uint32_t) ptrToMask) & changingAddressBits) >> 5;
 }
 
-inline uint16_t maskSizeForStorage(uint16_t blockSize) {
-    return (blockSize >> 5) & ((uint16_t)1023);                             // Make sure only 10 bits are used, not 11
+inline uint32_t maskSizeForStorage(uint32_t blockSize) {
+    return (blockSize >> 5) & ((uint32_t)1023);                             // Make sure only 10 bits are used, not 11
 }
 
-inline uint8_t *getPrevBucketPtr(uint8_t *ptrInBucket) {
-    return getAbsoluteAddress((uint16_t) ((((uint16_t) *(ptrInBucket + 4)) << 2) + ((*(ptrInBucket + 5) & 192) >> 6)));
+inline uint32_t *getPrevBucketPtr(uint32_t *ptrInBucket) {
+    return getAbsoluteAddressPtr((*(ptrInBucket + 1) & PREV_PTR_HEADER_BITS) >> 22);
 }
 
-inline uint8_t *getNextBucketPtr(uint8_t *ptrInBucket) {
-    return getAbsoluteAddress(((((uint16_t) (*(ptrInBucket + 5) & 63)) << 4) + ((uint16_t) (*(ptrInBucket + 6) & 240) >> 4)));
+inline uint32_t *getNextBucketPtr(uint32_t *ptrInBucket) {
+    return getAbsoluteAddressPtr((*(ptrInBucket + 1) & NEXT_PTR_HEADER_BITS) >> 12);
 }
 
-inline uint8_t unMaskAllocated(uint8_t *ptr) {
-    return (uint8_t) ((*(ptr + 3) & 2) >> 1);
+inline uint32_t unMaskAllocated(uint32_t *currentPtr) {
+    return (*currentPtr & (uint32_t) 0b10) >> 1;
 }
 
-inline void initHeader(uint16_t size, uint8_t * previousPtr, uint8_t * currentPtr, uint8_t * nextPtr, bool allocated) {
+inline void initHeader(uint32_t size, uint32_t * previousPtr, uint32_t * currentPtr, uint32_t * nextPtr, bool allocated) {
     // Divide size by 32 for storage
-    uint16_t storedSize = maskSizeForStorage(size);
-    uint16_t storedPreviousAddress = maskPtrForStorage(previousPtr);
-    uint16_t storedNextAddress = maskPtrForStorage(nextPtr);
-    *(currentPtr) = (uint8_t) (storedPreviousAddress >> 2);
-    *(currentPtr + 1) = (uint8_t) ((storedPreviousAddress & 3) << 6) + (uint8_t) (storedNextAddress >> 4);
-    *(currentPtr + 2) = (uint8_t) ((storedNextAddress & 15) << 4) + (uint8_t) (storedSize >> 6);
-    *(currentPtr + 3) = (uint8_t) ((storedSize & 63) << 2) + (uint8_t) ((allocated & 1) << 1);
+    uint32_t storedSize = maskSizeForStorage(size);
+    uint32_t storedPreviousAddress = maskPtrForStorage(previousPtr);
+    uint32_t storedNextAddress = maskPtrForStorage(nextPtr);
+    *currentPtr =  (storedPreviousAddress << 22) + (storedNextAddress << 12) + (storedSize << 2) + (((uint32_t) allocated) << 1);
 }
 
-inline void replaceHeader(uint8_t *newHeaderPtr, uint8_t *ptr, uint16_t storedSize, bool allocated) {
-    *(newHeaderPtr + 1) = (uint8_t) (*(newHeaderPtr + 1) & 192) + (uint8_t) (*(ptr + 1) & 63);
-    *(newHeaderPtr + 2) = (uint8_t) (*(ptr + 2) & 240) + (uint8_t) (storedSize >> 6);
-    *(newHeaderPtr + 3) = (uint8_t) ((storedSize & 63) << 2) + (uint8_t) ((allocated) << 1);
+inline void replaceHeaderAfterMerge(uint32_t *newHeaderPtr, uint32_t *prevToNewNextPtr, uint32_t newSize, bool isAllocated) {
+    *newHeaderPtr = (*(newHeaderPtr) & PREV_PTR_HEADER_BITS)
+            + (*(prevToNewNextPtr) & NEXT_PTR_HEADER_BITS)
+            + (((uint32_t) newSize) << 2 )
+            + (((uint32_t) isAllocated) << 1);
 }
 
-inline void updateHeaderPrevious(uint8_t *ptr, uint16_t newPrevious) {// update next mem block's previous to point to new merged block
-    *(ptr) = (uint8_t) (newPrevious >> 2);
-    *(ptr + 1) = (uint8_t) ((newPrevious & 3) << 6) + (uint8_t) (*(ptr + 1) & 63);
+inline void updateHeaderPtrs(uint32_t *ptr, uint32_t newPrevious, uint32_t newNext) {
+    *ptr = (newPrevious << 22) + (newNext << 12) + (*ptr & (SIZE_HEADER_BITS + ALLOCATED_FLAG_HEADER_BITS));
 }
 
-inline void addToBucket(uint8_t *blockPtr, int bucketIndex) {
-    uint16_t storedBlockAddress = maskPtrForStorage(blockPtr);
-    uint8_t * oldBucketHead = buckets[bucketIndex];
+inline void updateHeaderPrevious(uint32_t *ptr, uint32_t newPrevious) {
+    *ptr = (newPrevious << 22) + (*ptr & ~PREV_PTR_HEADER_BITS);
+}
+
+inline void updateHeaderNext(uint32_t *ptr, uint32_t newNext) {
+    *ptr = (newNext << 12) + (*ptr & ~NEXT_PTR_HEADER_BITS);
+}
+
+inline void updateHeaderSize(uint32_t *ptr, uint32_t newSize) {
+    *ptr = (newSize << 2) + (*ptr & ~(SIZE_HEADER_BITS));
+}
+
+inline void updateHeaderAllocated(uint32_t *ptr, bool isAllocated) {
+    *ptr = (((uint32_t) isAllocated) << 1) + (*ptr & ~(ALLOCATED_FLAG_HEADER_BITS));
+}
+
+inline void addToBucket(uint32_t *blockPtr, int bucketIndex) {
+    uint32_t storedBlockAddress = maskPtrForStorage(blockPtr);
+    uint32_t * oldBucketHead = buckets[bucketIndex];
     // if nothing in bucket, just make bucket point to the new address that we have deallocated
     if (oldBucketHead == NULL) {
         // change block to point to itself for "previous in bucket" and "next in bucket"
-        *(blockPtr + 4) = (uint8_t) (storedBlockAddress >> 2);
-        *(blockPtr + 5) = (uint8_t) ((storedBlockAddress & 3) << 6) + (uint8_t) (storedBlockAddress >> 4);
-        *(blockPtr + 6) = (uint8_t) ((storedBlockAddress & 15) << 4);
-    }
-    else {
+        updateHeaderPtrs(blockPtr + 1, storedBlockAddress, storedBlockAddress);
+    } else {
         // change old bucket head's "previous pointer in bucket" to the new bucket head's address
-        *(oldBucketHead + 4) = (uint8_t) (storedBlockAddress >> 2);
-        *(oldBucketHead + 5) = (uint8_t) ((storedBlockAddress & 3) << 6) + (uint8_t) (*(oldBucketHead + 5) & 63);
+        updateHeaderPrevious(oldBucketHead + 1, storedBlockAddress);
         // change new bucket head's "next pointer in bucket" to the old bucket head's address
-        *(blockPtr + 4) = (uint8_t) (storedBlockAddress >> 2);
-        *(blockPtr + 5) = (uint8_t) ((storedBlockAddress & 3) << 6) + (uint8_t) (maskPtrForStorage(oldBucketHead) >> 4);
-        *(blockPtr + 6) = (uint8_t) (maskPtrForStorage(oldBucketHead) << 4);
+        updateHeaderNext(blockPtr + 1, maskPtrForStorage(oldBucketHead));
     }
-    *(blockPtr + 3) = (uint8_t) (*(blockPtr + 3) & 252) + ((uint8_t) 0 << 1);
+    updateHeaderAllocated(blockPtr, false);
     // move bucket head to point to new bucket head
     buckets[bucketIndex] = blockPtr;
-    unAllocatedSize += unMaskSize(blockPtr);
 }
 
-inline void removeFromBucket(int bucketIndex, uint8_t *currentPtr) {
-    uint8_t *ptrInBucket, *prevBucketPtr, *nextBucketPtr, *newBucketHead;
+inline void removeFromBucket(int bucketIndex, uint32_t *currentPtr) {
+    uint32_t *ptrInBucket, *prevBucketPtr, *nextBucketPtr, *newBucketHead;
     ptrInBucket = buckets[bucketIndex];
     while(ptrInBucket != NULL && currentPtr != ptrInBucket) {
         nextBucketPtr = getNextBucketPtr(ptrInBucket);
@@ -128,24 +134,19 @@ inline void removeFromBucket(int bucketIndex, uint8_t *currentPtr) {
             newBucketHead = nextBucketPtr;
             buckets[bucketIndex] = newBucketHead;
             // denote the newBucketHead as the new head by pointing it's previous pointer at itself
-            *(newBucketHead + 4) =  ((uint8_t) (maskPtrForStorage(newBucketHead)) >> 2);
-            *(newBucketHead + 5) =  ((uint8_t) (maskPtrForStorage(newBucketHead) & 3) << 6) + (uint8_t)(*(newBucketHead + 5) & 63);
+            updateHeaderPrevious(newBucketHead + 1, maskPtrForStorage(newBucketHead));
         } else if (ptrInBucket == nextBucketPtr){
             // when matched ptr is just the tail in the bucket list
             // Change previousBucket's next to point to itself to denote that it is the new tail
-            *(prevBucketPtr + 5) = (uint8_t) (*(prevBucketPtr + 5) & 192) + (uint8_t) maskPtrForStorage(prevBucketPtr) >> 4;
-            *(prevBucketPtr + 6) = (uint8_t) (maskPtrForStorage(prevBucketPtr) & 15) << 4;
+            updateHeaderNext(prevBucketPtr + 1, maskPtrForStorage(prevBucketPtr));
         } else {
             // when matched ptr is not the head or the tail
             // Change previousBucket's next to point to nextBucket
-            *(prevBucketPtr + 5) = (uint8_t) (*(prevBucketPtr + 5) & 192) + (uint8_t) maskPtrForStorage(nextBucketPtr) >> 4;
-            *(prevBucketPtr + 6) = (uint8_t) (maskPtrForStorage(nextBucketPtr) & 15) << 4;
+            updateHeaderNext(prevBucketPtr + 1, maskPtrForStorage(nextBucketPtr));
             // Change nextBucket's previous to point to previousBucket
-            *(nextBucketPtr + 4) = (uint8_t) maskPtrForStorage(prevBucketPtr) >> 2;
-            *(nextBucketPtr + 5) = (uint8_t) (maskPtrForStorage(prevBucketPtr) & 3) << 6  + (uint8_t)(*(nextBucketPtr + 5) & 63);
+            updateHeaderPrevious(nextBucketPtr + 1, maskPtrForStorage(prevBucketPtr));
         }
     }
-    unAllocatedSize -= unMaskSize(currentPtr);
 }
 
 
@@ -153,7 +154,7 @@ void  half_init() {
     int bucketIndex;
     changingAddressBits = 32736;                                            // value of ten binary ones bit shifted left by 5,
                                                                             // Used to indicate the 10 bits that would change in the address
-    baseAddress = (uint8_t*) malloc(totalSize);
+    baseAddress = (uint32_t *) malloc(totalSize);
 
     constantAddress = ((uint32_t)baseAddress) & ~(changingAddressBits);     // All the bits of the base address except the 10 bits that can change
                                                                             // the complement of the bits that would change,
@@ -165,44 +166,56 @@ void  half_init() {
     // Add to bucket
     bucketIndex = getBucketIndex(totalSize);
     addToBucket(baseAddress, bucketIndex);
-    unAllocatedSize = totalSize;
 }
 
-void *half_alloc(uint16_t requestedSize) {
+void *half_alloc(uint32_t requestedSize) {
     int bucketIndex;
-    uint8_t *block, *excessBlock;
-    uint16_t blockSize, excessSize;
+    uint32_t *block, *excessBlock;
+    uint32_t blockSize, excessSize;
+    // roundup requested  size to multiple of 32
+    requestedSize = (uint32_t) ((ceil(requestedSize / 32.0)) * 32);
     // find bucket + 1
     bucketIndex = getBucketIndex(requestedSize);
     block = NULL;
-    // while loop through buckets array if not block found in the calculated half fit bucket
-    while (block == NULL) {
-        if (bucketIndex < 10) {
+    // Handle maximum allocation size into largest bucket by not incrementing (Ignoring Half Fit)
+    if (bucketIndex == 10) {
+        block = buckets[10];
+    } else if (bucketIndex > 10){
+        printf("INVALID SIZE, TOO BIG\n");
+        return NULL;
+    } else {
+        // while loop through buckets array if not block found in the calculated half fit bucket
+        while (block == NULL) {
             bucketIndex++;                                                  // Plus one first because of Half Fit
+            if (bucketIndex > 10) {
+                printf("FAILED TO FIND APPROPRIATE BUCKET\n");
+                return NULL;
+            }
+            block = buckets[bucketIndex];
         }
-        // Else, Handle maximum allocation size of into largest bucket by not incrementing (Ignoring Half Fit)
-        block = buckets[bucketIndex];
     }
-    // remove from bucket
-    removeFromBucket(bucketIndex, block);
-
     blockSize = unMaskSize(block);
     excessSize = blockSize - requestedSize;
+    // round down excess size to multiple of 32
+    excessSize = (uint32_t) ((floor(excessSize / 32.0)) * 32);
+    if (requestedSize > blockSize) {
+        printf("FAILED TO FIND APPROPRIATE BUCKET\n");
+        return NULL;
+    }
+
+    // remove from bucket
+    removeFromBucket(bucketIndex, block);
     // If difference between requestedSize and block size is greater than 32
     if (excessSize < 32) {
         // make change to allocated in header
-        *(block + 3) = (uint8_t) (*(block + 3) & 253) + (uint8_t) 2;
-        printf("UNALLOCATED SIZE : %u\n", unAllocatedSize);
+        updateHeaderAllocated(block, true);
         return block;
     } else {
-        // roundup requested block's size to multiple of 32
-        blockSize = (uint16_t) ((ceil(requestedSize / 32.0)) * 32);
-        // round down excess size to multiple of 32
-        excessSize = (uint16_t) ((floor(excessSize / 32.0)) * 32);
-        excessBlock = block + blockSize;
+        blockSize = requestedSize;
+        excessBlock = block + (blockSize >> 2);
         // cut up and put back into bucket
         // TODO: Make the excess the first part of the block and return what is left for the requested allocation to save bucket manipulation since we don't remove (and rearrange), just edit
-        uint8_t *nextMemPtr = getAbsoluteAddress(unMaskNextMemPtr(block));
+        uint32_t *nextMemPtr = getAbsoluteAddressPtr(unMaskNextMemPtr(block));
         if (block == nextMemPtr) {
             // Means that block is last in total MemBlock
             // Denote that excessBlock is now the last in total MemBlock by pointing it's next to itself
@@ -214,27 +227,26 @@ void *half_alloc(uint16_t requestedSize) {
         addToBucket(excessBlock, bucketIndex);
 
         // declare new header for block that we are returning
-        *(block + 1) = (uint8_t) (*(block + 1) & 192) + ((uint8_t) (maskPtrForStorage(block + blockSize) >> 4));
-        *(block + 2) = (uint8_t) ((uint8_t) (maskPtrForStorage(block + blockSize) << 6)) + (uint8_t) (maskSizeForStorage(blockSize) >> 6);
-//        *(block + 3) = (uint8_t) ((maskSizeForStorage(blockSize) & 63) << 2) + (uint8_t) 2;
-        *(block + 3) = (uint8_t) ((maskSizeForStorage(blockSize) & 63) << 2) + (uint8_t) 2;
+        updateHeaderNext(block, maskPtrForStorage(block + blockSize));
+        updateHeaderSize(block, maskSizeForStorage(blockSize));
+        // make change to allocated in header
+        updateHeaderAllocated(block, true);
     }
-//    printf("UNALLOCATED SIZE : %u\n", unAllocatedSize);
 	return block;
 }
 
 void half_free( void * ptrToDelete ) {
     int bucketIndex;
-	uint8_t *previousMemPtr, *nextMemPtr, *currentPtr, *nextNextMemPtr, previousIsAllocated, nextIsAllocated;
-    uint16_t blockSize, previousSize, nextSize, storedPreviousMemPtr, storedCurrentPtr, storedNextMemPtr, storedBlockSize;
+    uint32_t *previousMemPtr, *nextMemPtr, *currentPtr, *nextNextMemPtr, previousIsAllocated, nextIsAllocated;
+    uint32_t blockSize, previousSize, nextSize, storedPreviousMemPtr, storedCurrentPtr, storedNextMemPtr, storedBlockSize;
     currentPtr = ptrToDelete;
     blockSize = unMaskSize(currentPtr);
     storedPreviousMemPtr = unMaskPreviousMemPtr(currentPtr);
     storedCurrentPtr = maskPtrForStorage(currentPtr);
     storedNextMemPtr = unMaskNextMemPtr(currentPtr);
-	previousMemPtr = getAbsoluteAddress(storedPreviousMemPtr);
-	nextMemPtr = getAbsoluteAddress(storedNextMemPtr);
-    nextNextMemPtr = getAbsoluteAddress(unMaskNextMemPtr(nextMemPtr));
+	previousMemPtr = getAbsoluteAddressPtr(storedPreviousMemPtr);
+	nextMemPtr = getAbsoluteAddressPtr(storedNextMemPtr);
+    nextNextMemPtr = getAbsoluteAddressPtr(unMaskNextMemPtr(nextMemPtr));
     previousSize = unMaskSize(previousMemPtr);
     nextSize = unMaskSize(nextMemPtr);
     previousIsAllocated = unMaskAllocated(previousMemPtr);
@@ -252,7 +264,8 @@ void half_free( void * ptrToDelete ) {
         blockSize += nextSize;
         storedBlockSize = maskSizeForStorage(blockSize);
         // declare new header
-        replaceHeader(previousMemPtr, nextMemPtr, storedBlockSize, false);
+        replaceHeaderAfterMerge(previousMemPtr, nextMemPtr, storedBlockSize, false);
+        // update next mem block's previous to point to new merged block
         updateHeaderPrevious(nextNextMemPtr, storedPreviousMemPtr);
         // add to appropriate bucket
         bucketIndex = getBucketIndex(blockSize);
@@ -268,10 +281,11 @@ void half_free( void * ptrToDelete ) {
         // declare new header
 
         if (currentPtr == nextMemPtr) {
-            replaceHeader(previousMemPtr, getAbsoluteAddress(unMaskPreviousMemPtr(previousMemPtr)), storedBlockSize, false);
+            replaceHeaderAfterMerge(previousMemPtr, getAbsoluteAddressPtr(unMaskPreviousMemPtr(previousMemPtr)), storedBlockSize, false);
         } else {
-            replaceHeader(previousMemPtr, currentPtr, storedBlockSize, false);
+            replaceHeaderAfterMerge(previousMemPtr, currentPtr, storedBlockSize, false);
         }
+        // update next mem block's previous to point to new merged block
         updateHeaderPrevious(nextMemPtr, storedPreviousMemPtr);
         // add to appropriate bucket
         bucketIndex = getBucketIndex(blockSize);
@@ -286,10 +300,11 @@ void half_free( void * ptrToDelete ) {
         storedBlockSize = maskSizeForStorage(blockSize);
         // declare new header
         if ( nextMemPtr == nextNextMemPtr) {
-            replaceHeader(currentPtr, previousMemPtr, storedBlockSize, false);
+            replaceHeaderAfterMerge(currentPtr, previousMemPtr, storedBlockSize, false);
         } else {
-            replaceHeader(currentPtr, nextMemPtr, storedBlockSize, false);
+            replaceHeaderAfterMerge(currentPtr, nextMemPtr, storedBlockSize, false);
         }
+        // update next mem block's previous to point to new merged block
         updateHeaderPrevious(nextNextMemPtr, storedCurrentPtr);
         // add to appropriate bucket
         bucketIndex = getBucketIndex(blockSize);
@@ -299,5 +314,4 @@ void half_free( void * ptrToDelete ) {
         bucketIndex = getBucketIndex(blockSize);
         addToBucket(currentPtr, bucketIndex);
     }
-//    printf("UNALLOCATED SIZE : %u\n", unAllocatedSize);
 }
